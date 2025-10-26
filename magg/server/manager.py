@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Annotated
 
-from fastmcp import FastMCP, Client
+from fastmcp import FastMCP, Client, Context
 from pydantic import Field
 
 from .defaults import MAGG_INSTRUCTIONS
@@ -377,6 +377,20 @@ class ManagedServer:
     def _register_tools(self):
         pass
 
+    async def _send_list_changed_notifications(self, context: Context | None) -> None:
+        """Send tool, resource, and prompt list changed notifications to the connected client.
+
+        Args:
+            context: The MCP context from the tool call, or None if not available
+        """
+        if context:
+            try:
+                await context.send_tool_list_changed()
+                await context.send_resource_list_changed()
+                await context.send_prompt_list_changed()
+            except Exception as e:
+                logger.warning("Failed to send list changed notifications: %s", e)
+
     def save_config(self, config: MaggConfig):
         """Save the current configuration to disk."""
         return self.server_manager.save_config(config)
@@ -508,6 +522,7 @@ class ManagedServer:
     async def load_kit(
             self,
             name: Annotated[str, Field(description="Kit name to load (filename without .json)")],
+            context: Context | None = None,
     ) -> MaggResponse:
         """Load a kit and its servers into the configuration."""
         try:
@@ -532,10 +547,14 @@ class ManagedServer:
 
         except Exception as e:
             return MaggResponse.error(f"Failed to load kit: {str(e)}")
+        finally:
+            # Always notify clients about list changes, even on partial success or error
+            await self._send_list_changed_notifications(context)
 
     async def unload_kit(
             self,
             name: Annotated[str, Field(description="Kit name to unload")],
+            context: Context | None = None,
     ) -> MaggResponse:
         """Unload a kit and optionally its servers from the configuration."""
         try:
@@ -565,6 +584,9 @@ class ManagedServer:
 
         except Exception as e:
             return MaggResponse.error(f"Failed to unload kit: {str(e)}")
+        finally:
+            # Always notify clients about list changes, even on partial success or error
+            await self._send_list_changed_notifications(context)
 
     async def list_kits(self) -> MaggResponse:
         """List all available kits with their status."""

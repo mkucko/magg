@@ -280,6 +280,7 @@ Documentation for proxy tool:
         transport: Annotated[dict[str, Any] | str | None, Field(
             description=f"Transport-specific configuration (dict or JSON string){TRANSPORT_DOCS}"
         )] = None,
+        context: Context | None = None,
     ) -> MaggResponse:
         """Add a new MCP server."""
         try:
@@ -355,10 +356,14 @@ Documentation for proxy tool:
 
         except Exception as e:
             return MaggResponse.error(f"Failed to add server: {str(e)}")
+        finally:
+            # Always notify clients about list changes, even on partial success or error
+            await self._send_list_changed_notifications(context)
 
     async def remove_server(
         self,
         name: Annotated[str, Field(description="Server name to remove")],
+        context: Context | None = None,
     ) -> MaggResponse:
         """Remove a server."""
         try:
@@ -371,6 +376,7 @@ Documentation for proxy tool:
                     return MaggResponse.error(f"Failed to save configuration after removing server '{name}'")
 
                 await self.server_manager.unmount_server(name)
+
                 return MaggResponse.success({
                     "action": "server_removed",
                     "server": {"name": name}
@@ -380,6 +386,9 @@ Documentation for proxy tool:
 
         except Exception as e:
             return MaggResponse.error(f"Failed to remove server: {str(e)}")
+        finally:
+            # Always notify clients about list changes, even on partial success or error
+            await self._send_list_changed_notifications(context)
 
     async def list_servers(self) -> MaggResponse:
         """List all configured servers.
@@ -419,6 +428,7 @@ Documentation for proxy tool:
     async def enable_server(
         self,
         name: Annotated[str, Field(description="Server name to enable")],
+        context: Context | None = None,
     ) -> MaggResponse:
         """Enable a server."""
         try:
@@ -447,10 +457,14 @@ Documentation for proxy tool:
 
         except Exception as e:
             return MaggResponse.error(f"Failed to enable server: {str(e)}")
+        finally:
+            # Always notify clients about list changes, even on partial success or error
+            await self._send_list_changed_notifications(context)
 
     async def disable_server(
         self,
         name: Annotated[str, Field(description="Server name to disable")],
+        context: Context | None = None,
     ) -> MaggResponse:
         """Disable a server."""
         try:
@@ -478,6 +492,9 @@ Documentation for proxy tool:
 
         except Exception as e:
             return MaggResponse.error(f"Failed to disable server: {str(e)}")
+        finally:
+            # Always notify clients about list changes, even on partial success or error
+            await self._send_list_changed_notifications(context)
 
     async def smart_configure(
         self,
@@ -613,6 +630,7 @@ Documentation for proxy tool:
                         notes=config_data.get("notes"),
                         enable=config_data.get("enabled"),
                         transport=config_data.get("transport"),
+                        context=context,
                     )
 
                     if add_result.is_success:
@@ -761,7 +779,7 @@ Please provide:
         except Exception as e:
             return MaggResponse.error(f"Failed to get status: {str(e)}")
 
-    async def reload_config_tool(self) -> MaggResponse:
+    async def reload_config_tool(self, context: Context | None = None) -> MaggResponse:
         """Reload configuration from disk and apply changes.
 
         This will:
@@ -797,6 +815,10 @@ Please provide:
         except Exception as e:
             logger.exception("Error during config reload")
             return MaggResponse.error(f"Config reload error: {str(e)}")
+        finally:
+            # Always notify connected clients about list changes after reload
+            # Even if reload fails or throws, partial changes may have been applied (servers unmounted/mounted)
+            await self._send_list_changed_notifications(context)
 
     async def check(
         self,
@@ -806,8 +828,10 @@ Please provide:
         timeout: Annotated[float, Field(
             description="Timeout in seconds for health check per server"
         )] = 2.5,
+        context: Context | None = None,
     ) -> MaggResponse:
         """Check health of all mounted servers and handle unresponsive ones."""
+        actions_taken = []  # Track if any actions were taken
         try:
             results = {}
             unresponsive_servers = []
@@ -834,7 +858,6 @@ Please provide:
                     results[server_name] = {"status": "error", "reason": str(e)}
                     unresponsive_servers.append(server_name)
 
-            actions_taken = []
             if unresponsive_servers and action != "report":
                 if action == "disable":
                     config = self.config
@@ -889,6 +912,11 @@ Please provide:
 
         except Exception as e:
             return MaggResponse.error(f"Failed to check servers: {str(e)}")
+        finally:
+            # Notify connected clients about list changes if actions were taken
+            # Even on exception, partial actions may have been completed
+            if actions_taken:
+                await self._send_list_changed_notifications(context)
 
     # ============================================================================
     # endregion

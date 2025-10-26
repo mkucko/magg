@@ -29,7 +29,7 @@ Think of Magg as a "package manager for LLM tools" - it lets AI assistants insta
 
 - **Self-Service Tool Management**: LLMs can search for and add new MCP servers without human intervention.
 - **Dynamic Configuration Reloading**: Automatically detects and applies config changes without restarting.
-- **Automatic Tool Proxying**: Tools from added servers are automatically exposed with configurable prefixes.
+- **Automatic Tool Proxying**: Tools from added servers are automatically exposed with configurable prefixes. Clients that support MCP notifications receive real-time updates about changes to tools, prompts and resources when servers are added, removed, or modified without needing to reconnect.
 - **ProxyMCP Tool**: A built-in tool that proxies the MCP protocol to itself, for clients that don't support notifications or dynamic tool updates (which is most of them currently).
 - **Smart Configuration**: Uses MCP sampling to intelligently configure servers from just a URL.
 - **Persistent Configuration**: Maintains server configurations in `.magg/config.json`.
